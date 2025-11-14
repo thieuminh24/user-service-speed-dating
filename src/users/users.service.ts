@@ -136,14 +136,19 @@ export class UsersService {
   }
 
   async getProfile(userId: string): Promise<Profile> {
-    console.log('hehehe');
     const user = await this.userModel.findById(userId).lean().exec();
     if (!user) throw new NotFoundException('User not found');
+    if (!user.dateOfBirth)
+      throw new BadRequestException('User date of birth is missing');
+    const age =
+      new Date().getFullYear() - new Date(user.dateOfBirth).getFullYear();
+
+    console.log('age', age);
 
     return {
       name: user.name,
       aboutMe: user.aboutMe,
-      dateOfBirth: user.dateOfBirth,
+      age: age,
       photos: user.photos,
       prompts: user.prompts,
       jobsAndEducation: user.jobsAndEducation,

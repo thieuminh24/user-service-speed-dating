@@ -14,6 +14,12 @@ import {
   EducationLevel,
 } from '../../common/enums';
 
+export enum SubscriptionTier {
+  FREE = 'Free',
+  PREMIUM = 'Premium',
+  VIP = 'VIP',
+}
+
 @Schema({ timestamps: true })
 export class User extends Document {
   // === THÔNG TIN CƠ BẢN ===
@@ -107,21 +113,10 @@ export class User extends Document {
     starSign?: StarSign;
   };
 
-  // @Prop({
-  //   type: {
-  //     type: { type: String, enum: ['Point'], default: 'Point' },
-  //     coordinates: { type: [Number], default: [0, 0] }, // [lon, lat]
-  //   },
-  // })
-  // location?: {
-  //   type: 'Point';
-  //   coordinates: [number, number]; // [lon, lat]
-  // };
-
   @Prop({
-    type: MongooseSchema.Types.Mixed, // ĐÚN
+    type: MongooseSchema.Types.Mixed,
     default: { type: 'Point', coordinates: [0, 0] },
-    index: '2dsphere', // ← QUAN TRỌNG: index ở đây
+    index: '2dsphere',
   })
   location?: {
     type: 'Point';
@@ -141,14 +136,43 @@ export class User extends Document {
   @Prop({ type: Date })
   lastActive?: Date;
 
-  @Prop({ default: 'Free' })
-  subscriptionType: 'Free' | 'Basic' | 'Premium' | 'VIP';
+  // === PREMIUM FEATURES ===
+  @Prop({
+    type: String,
+    enum: Object.values(SubscriptionTier),
+    default: SubscriptionTier.FREE,
+  })
+  subscriptionTier: SubscriptionTier;
+
+  @Prop({ default: false })
+  isPremium: boolean;
 
   @Prop({ type: Date })
-  subscriptionExpiry?: Date;
+  premiumUntil?: Date;
 
+  // Super Likes (renew monthly for premium users)
+  @Prop({ default: 0 })
+  superLikesLeft: number;
+
+  @Prop({ type: Date })
+  superLikesResetAt?: Date;
+
+  // Profile Boosts (one-time purchase or included in VIP)
   @Prop({ default: 0 })
   boostsLeft: number;
+
+  @Prop({ type: Date })
+  lastBoostUsed?: Date;
+
+  // Unlimited likes for Premium/VIP
+  @Prop({ default: 5 }) // Free users: 5 likes/day
+  dailyLikesLimit: number;
+
+  @Prop({ default: 5 })
+  dailyLikesUsed: number;
+
+  @Prop({ type: Date })
+  likesResetAt?: Date;
 
   @Prop({ default: false })
   isDeleted: boolean;
@@ -184,3 +208,4 @@ UserSchema.pre('save', function (next) {
 UserSchema.index({ 'location.lat': 1, 'location.lon': 1 });
 UserSchema.index({ isDeleted: 1 });
 UserSchema.index({ email: 1 });
+UserSchema.index({ isPremium: 1, premiumUntil: 1 });

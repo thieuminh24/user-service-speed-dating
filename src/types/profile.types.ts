@@ -64,6 +64,7 @@ export type Profile = {
   name: string;
   aboutMe?: string;
   dateOfBirth?: Date;
+  age?: number;
   photos?: string[];
   prompts?: PromptsType[];
   jobsAndEducation: {
