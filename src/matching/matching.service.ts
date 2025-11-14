@@ -90,13 +90,16 @@ export class MatchingService {
           basic: c.basic,
           aboutMe: c.aboutMe,
           prompts: c.prompts,
-          jobs: c.jobs,
-          education: c.education,
+          jobsAndEducation: c.jobsAndEducation,
           compatibilityScore: totalScore,
           numerologyNumber: c.numerologyNumber,
           distance: distanceKm,
           numerologyScore: numScore,
           zodiacScore: zodiacScore,
+          location: {
+            lon: c.location.coordinates[0],
+            lat: c.location.coordinates[1],
+          },
           locationScore: Math.round(locationScore),
         };
       })
