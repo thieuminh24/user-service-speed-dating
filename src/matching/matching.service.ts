@@ -30,6 +30,10 @@ export class MatchingService {
 
     const currentNum = currentUser.numerologyNumber;
     const currentSign = currentUser.basic.starSign;
+
+    console.log('currentUser', currentUser);
+    console.log('currentNum', currentNum);
+    console.log('currentSign', currentSign);
     if (currentNum === null || !currentSign) {
       throw new BadRequestException(
         'Please complete your profile (DOB required)',

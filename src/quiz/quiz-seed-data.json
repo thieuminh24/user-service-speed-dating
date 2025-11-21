@@ -1,0 +1,164 @@
+{
+  "questions": [
+    {
+      "question": "Buổi hẹn hò lý tưởng của bạn là gì?",
+      "category": "personality",
+      "options": [
+        { "text": "Nhà hàng sang trọng", "value": "a" },
+        { "text": "Cafe yên tĩnh", "value": "b" },
+        { "text": "Dã ngoại công viên", "value": "c" },
+        { "text": "Bar/Karaoke sôi động", "value": "d" }
+      ]
+    },
+    {
+      "question": "Bạn thích làm gì vào cuối tuần?",
+      "category": "lifestyle",
+      "options": [
+        { "text": "Ở nhà xem phim/đọc sách", "value": "a" },
+        { "text": "Đi gym/chơi thể thao", "value": "b" },
+        { "text": "Gặp bạn bè/dự tiệc", "value": "c" },
+        { "text": "Khám phá địa điểm mới", "value": "d" }
+      ]
+    },
+    {
+      "question": "Điều gì quan trọng nhất trong một mối quan hệ?",
+      "category": "values",
+      "options": [
+        { "text": "Sự tin tưởng", "value": "a" },
+        { "text": "Sự thấu hiểu", "value": "b" },
+        { "text": "Niềm vui và hạnh phúc", "value": "c" },
+        { "text": "Tôn trọng lẫn nhau", "value": "d" }
+      ]
+    },
+    {
+      "question": "Thể loại phim yêu thích của bạn?",
+      "category": "entertainment",
+      "options": [
+        { "text": "Hành động/Phiêu lưu", "value": "a" },
+        { "text": "Tình cảm/Lãng mạn", "value": "b" },
+        { "text": "Kinh dị/Thriller", "value": "c" },
+        { "text": "Hài hước/Comedy", "value": "d" }
+      ]
+    },
+    {
+      "question": "Bạn thích giao tiếp qua?",
+      "category": "personality",
+      "options": [
+        { "text": "Gặp mặt trực tiếp", "value": "a" },
+        { "text": "Gọi điện thoại", "value": "b" },
+        { "text": "Nhắn tin", "value": "c" },
+        { "text": "Video call", "value": "d" }
+      ]
+    },
+    {
+      "question": "Thói quen ăn uống của bạn?",
+      "category": "lifestyle",
+      "options": [
+        { "text": "Ăn chay/Healthy", "value": "a" },
+        { "text": "Thử món mới", "value": "b" },
+        { "text": "Món quen thuộc", "value": "c" },
+        { "text": "Tùy tâm trạng", "value": "d" }
+      ]
+    },
+    {
+      "question": "Quan điểm của bạn về gia đình?",
+      "category": "values",
+      "options": [
+        { "text": "Gia đình là trên hết", "value": "a" },
+        { "text": "Cân bằng gia đình và sự nghiệp", "value": "b" },
+        { "text": "Độc lập nhưng gần gũi", "value": "c" },
+        { "text": "Tôn trọng không gian riêng", "value": "d" }
+      ]
+    },
+    {
+      "question": "Bạn thích nghe nhạc gì?",
+      "category": "entertainment",
+      "options": [
+        { "text": "Nhạc trẻ/Pop", "value": "a" },
+        { "text": "Nhạc Indie/Alternative", "value": "b" },
+        { "text": "Nhạc ballad/cảm xúc", "value": "c" },
+        { "text": "EDM/Dance", "value": "d" }
+      ]
+    },
+    {
+      "question": "Khi gặp khó khăn, bạn sẽ?",
+      "category": "personality",
+      "options": [
+        { "text": "Tự mình giải quyết", "value": "a" },
+        { "text": "Chia sẻ với người thân", "value": "b" },
+        { "text": "Tìm lời khuyên từ nhiều người", "value": "c" },
+        { "text": "Cần thời gian để suy nghĩ", "value": "d" }
+      ]
+    },
+    {
+      "question": "Du lịch lý tưởng của bạn?",
+      "category": "lifestyle",
+      "options": [
+        { "text": "Nghỉ dưỡng resort", "value": "a" },
+        { "text": "Khám phá thiên nhiên", "value": "b" },
+        { "text": "City tour shopping", "value": "c" },
+        { "text": "Trải nghiệm văn hóa", "value": "d" }
+      ]
+    },
+    {
+      "question": "Bạn sẵn sàng thay đổi vì người yêu?",
+      "category": "values",
+      "options": [
+        { "text": "Thay đổi hoàn toàn", "value": "a" },
+        { "text": "Thay đổi một phần", "value": "b" },
+        { "text": "Không thay đổi nhiều", "value": "c" },
+        { "text": "Giữ nguyên bản thân", "value": "d" }
+      ]
+    },
+    {
+      "question": "Hoạt động giải trí yêu thích?",
+      "category": "entertainment",
+      "options": [
+        { "text": "Chơi game/esports", "value": "a" },
+        { "text": "Xem phim/series", "value": "b" },
+        { "text": "Đọc sách/manga", "value": "c" },
+        { "text": "Thể thao/outdoor", "value": "d" }
+      ]
+    },
+    {
+      "question": "Tính cách nổi bật của bạn?",
+      "category": "personality",
+      "options": [
+        { "text": "Hướng ngoại/năng động", "value": "a" },
+        { "text": "Hướng nội/trầm tĩnh", "value": "b" },
+        { "text": "Hài hước/vui vẻ", "value": "c" },
+        { "text": "Chín chắn/đáng tin", "value": "d" }
+      ]
+    },
+    {
+      "question": "Thói quen buổi sáng của bạn?",
+      "category": "lifestyle",
+      "options": [
+        { "text": "Dậy sớm tập thể dục", "value": "a" },
+        { "text": "Thức dậy từ từ", "value": "b" },
+        { "text": "Đọc tin tức/social", "value": "c" },
+        { "text": "Ăn sáng đầy đủ", "value": "d" }
+      ]
+    },
+    {
+      "question": "Quan điểm về hôn nhân?",
+      "category": "values",
+      "options": [
+        { "text": "Muốn kết hôn sớm", "value": "a" },
+        { "text": "Khi đã sẵn sàng", "value": "b" },
+        { "text": "Chưa nghĩ đến", "value": "c" },
+        { "text": "Không cần thiết", "value": "d" }
+      ]
+    },
+    {
+      "question": "Thể loại sách/truyện yêu thích?",
+      "category": "entertainment",
+      "options": [
+        { "text": "Trinh thám/Mystery", "value": "a" },
+        { "text": "Tình cảm/Romance", "value": "b" },
+        { "text": "Khoa học viễn tưởng", "value": "c" },
+        { "text": "Phát triển bản thân", "value": "d" }
+      ]
+    }
+  ]
+}

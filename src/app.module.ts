@@ -7,7 +7,9 @@ import { ConfigModule } from '@nestjs/config';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { MatchingModule } from './matching/matching.module';
 import { PaymentModule } from './payment/payment.module';
-// import { ChatModule } from './chat/chat.module'; // ← THÊM IMPORT
+import { ChatModule } from './chat/chat.module'; // ← THÊM IMPORT
+import { StoryModule } from './story/story.module';
+import { QuizModule } from './quiz/quiz.module';
 
 @Module({
   imports: [
@@ -20,7 +22,9 @@ import { PaymentModule } from './payment/payment.module';
     CloudinaryModule,
     MatchingModule,
     PaymentModule,
-    // ChatModule, // ← THÊM MODULE
+    ChatModule, // ← THÊM MODULE
+    StoryModule,
+    QuizModule,
   ],
 })
 export class AppModule {}
