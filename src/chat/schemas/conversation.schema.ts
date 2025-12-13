@@ -1,4 +1,3 @@
-// src/chat/schemas/conversation.schema.ts
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
@@ -10,10 +9,20 @@ export enum ConversationStatus {
 
 @Schema({ timestamps: true })
 export class Conversation extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Match', required: true })
+  @Prop({
+    type: Types.ObjectId,
+    ref: 'Match',
+    required: true,
+    unique: true, // ← CRITICAL: Add unique constraint
+  })
   matchId: Types.ObjectId;
 
-  @Prop({ type: [Types.ObjectId], ref: 'User', required: true })
+  // CORRECT: Dùng mongoose.Schema.Types.ObjectId và ref trực tiếp
+  @Prop({
+    type: [Types.ObjectId], // mảng ObjectId
+    ref: 'User',
+    required: true,
+  })
   participants: Types.ObjectId[];
 
   @Prop({ type: Types.ObjectId, ref: 'Message' })
@@ -29,30 +38,24 @@ export class Conversation extends Document {
   })
   status: ConversationStatus;
 
-  // Người unmatch/block
+  @Prop({ type: Map, of: Number, default: {} })
+  unreadCount: Map<string, number>;
+
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'User' }], default: [] })
+  blockedBy: Types.ObjectId[];
+
   @Prop({ type: Types.ObjectId, ref: 'User' })
   unmatchedBy?: Types.ObjectId;
 
   @Prop({ type: Date })
   unmatchedAt?: Date;
-
-  // Block settings (nếu 1 trong 2 block nhau)
-  @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
-  blockedBy: Types.ObjectId[];
-
-  // Unread count cho mỗi user
-  @Prop({
-    type: Map,
-    of: Number,
-    default: {},
-  })
-  unreadCount: Map<string, number>;
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);
 
-// Indexes
+/// Unique index cho matchId (đã đúng)
 ConversationSchema.index({ matchId: 1 }, { unique: true });
-ConversationSchema.index({ participants: 1 });
-ConversationSchema.index({ lastMessageAt: -1 });
-ConversationSchema.index({ status: 1 });
+
+// (Tùy chọn) Tạo index cho query nhanh hơn
+ConversationSchema.index({ participants: 1, status: 1 });
+ConversationSchema.index({ unreadCount: 1 });

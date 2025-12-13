@@ -12,12 +12,20 @@ import {
   Politics,
   Religion,
   EducationLevel,
+  UserRole,
+  AccountStatus,
 } from '../../common/enums';
 
 export enum SubscriptionTier {
   FREE = 'Free',
   PREMIUM = 'Premium',
   VIP = 'VIP',
+}
+
+// ✅ THÊM ENUM MỚI
+export enum AuthProvider {
+  LOCAL = 'local',
+  GOOGLE = 'google',
 }
 
 @Schema({ timestamps: true })
@@ -34,6 +42,66 @@ export class User extends Document {
 
   @Prop({ type: [String], default: [] })
   photos: string[];
+
+  // === VERIFICATION ===
+  @Prop({ default: false })
+  isPhotoVerified: boolean;
+
+  @Prop({
+    type: String,
+    enum: ['none', 'pending', 'approved', 'rejected'],
+    default: 'none',
+  })
+  verificationStatus: string;
+
+  // === ROLE ===
+  @Prop({
+    type: String,
+    enum: Object.values(UserRole),
+    default: UserRole.USER,
+  })
+  role: UserRole;
+
+  // === ADMIN MANAGEMENT ===
+  @Prop({
+    type: String,
+    enum: Object.values(AccountStatus),
+    default: AccountStatus.ACTIVE,
+  })
+  accountStatus: AccountStatus;
+
+  @Prop({ default: false })
+  isBanned: boolean;
+
+  @Prop()
+  banReason?: string;
+
+  @Prop({ type: Date })
+  bannedAt?: Date;
+
+  @Prop({ type: Date })
+  banUntil?: Date;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User' })
+  bannedBy?: MongooseSchema.Types.ObjectId;
+
+  @Prop({ default: false })
+  isRestricted: boolean;
+
+  @Prop()
+  restrictionReason?: string;
+
+  @Prop({ type: Date })
+  restrictedUntil?: Date;
+
+  @Prop({ type: [String], default: [] })
+  restrictedFeatures: string[];
+
+  @Prop({ default: 0 })
+  warningCount: number;
+
+  @Prop({ type: Date })
+  lastWarningAt?: Date;
 
   // === PROMPTS ===
   @Prop({
@@ -120,15 +188,32 @@ export class User extends Document {
   })
   location?: {
     type: 'Point';
-    coordinates: [number, number]; // [lon, lat]
+    coordinates: [number, number];
   };
 
   // === CÁC TRƯỜNG HỆ THỐNG ===
   @Prop({ unique: true, required: true })
   email: string;
 
-  @Prop({ required: true })
-  password: string;
+  // ✅ THAY ĐỔI: password giờ là optional (cho Google users)
+  @Prop({ required: false })
+  password?: string;
+
+  // ✅ THÊM MỚI: Auth Provider
+  @Prop({
+    type: String,
+    enum: Object.values(AuthProvider),
+    default: AuthProvider.LOCAL,
+  })
+  authProvider: AuthProvider;
+
+  // ✅ THÊM MỚI: Google ID
+  @Prop({ sparse: true, unique: true })
+  googleId?: string;
+
+  // ✅ THÊM MỚI: Avatar từ Google
+  @Prop()
+  googleAvatar?: string;
 
   @Prop({ type: Number, default: null })
   numerologyNumber: number | null;
@@ -150,22 +235,19 @@ export class User extends Document {
   @Prop({ type: Date })
   premiumUntil?: Date;
 
-  // Super Likes (renew monthly for premium users)
   @Prop({ default: 0 })
   superLikesLeft: number;
 
   @Prop({ type: Date })
   superLikesResetAt?: Date;
 
-  // Profile Boosts (one-time purchase or included in VIP)
   @Prop({ default: 0 })
   boostsLeft: number;
 
   @Prop({ type: Date })
   lastBoostUsed?: Date;
 
-  // Unlimited likes for Premium/VIP
-  @Prop({ default: 5 }) // Free users: 5 likes/day
+  @Prop({ default: 5 })
   dailyLikesLimit: number;
 
   @Prop({ default: 5 })
@@ -209,3 +291,5 @@ UserSchema.index({ 'location.lat': 1, 'location.lon': 1 });
 UserSchema.index({ isDeleted: 1 });
 UserSchema.index({ email: 1 });
 UserSchema.index({ isPremium: 1, premiumUntil: 1 });
+UserSchema.index({ googleId: 1 }); // ✅ THÊM INDEX MỚI
+UserSchema.index({ authProvider: 1 }); // ✅ THÊM INDEX MỚI

@@ -1,4 +1,4 @@
-// src/chat/chat.gateway.ts (Fixed)
+// src/chat/chat.gateway.ts
 import {
   WebSocketGateway,
   SubscribeMessage,
@@ -15,6 +15,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User } from '../users/schemas/user.schema';
 import { MessageType } from './schemas/message.schema';
+import { OnEvent } from '@nestjs/event-emitter';
+import { Logger } from '@nestjs/common';
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -29,6 +31,7 @@ interface SendMessageDto {
   fileName?: string;
   fileSize?: number;
   replyTo?: string;
+  quizSessionId?: string;
 }
 
 interface ReactMessageDto {
@@ -69,7 +72,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
-  // Track online users: userId -> Set of socket IDs
+  private readonly logger = new Logger(ChatGateway.name);
   private onlineUsers = new Map<string, Set<string>>();
 
   constructor(
@@ -77,6 +80,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private jwtService: JwtService,
     @InjectModel(User.name) private userModel: Model<User>,
   ) {}
+
+  // ===== LISTEN TO MATCH CREATED EVENT =====
+  @OnEvent('match.created')
+  async handleMatchCreatedEvent(payload: {
+    matchId: string;
+    user1Id: string;
+    user2Id: string;
+    user1: { _id: string; name: string; photos: string[] };
+    user2: { _id: string; name: string; photos: string[] };
+  }) {
+    this.logger.log(
+      `Match created notification: ${payload.user1Id} <-> ${payload.user2Id}`,
+    );
+
+    // Notify BOTH users about the match
+    this.emitToUser(payload.user1Id, 'match:created', {
+      matchId: payload.matchId,
+      matchedUser: payload.user2,
+    });
+
+    this.emitToUser(payload.user2Id, 'match:created', {
+      matchId: payload.matchId,
+      matchedUser: payload.user1,
+    });
+
+    this.logger.log('Match notifications sent to both users');
+  }
 
   // ===== CONNECTION MANAGEMENT =====
 
@@ -103,26 +133,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      // Add to online users
       if (!this.onlineUsers.has(client.userId)) {
         this.onlineUsers.set(client.userId, new Set());
       }
       this.onlineUsers.get(client.userId)!.add(client.id);
 
-      // Update lastActive
       await this.userModel.findByIdAndUpdate(client.userId, {
         lastActive: new Date(),
       });
 
-      // Notify others that this user is online
       this.server.emit('user:online', {
         userId: client.userId,
         name: client.user.name,
       });
 
-      console.log(`✅ User ${client.userId} connected (${client.id})`);
+      this.logger.log(`✅ User ${client.userId} connected (${client.id})`);
     } catch (error) {
-      console.error('Connection error:', error);
+      this.logger.error('Connection error:', error);
       client.disconnect();
     }
   }
@@ -136,19 +163,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (userSockets.size === 0) {
         this.onlineUsers.delete(client.userId);
 
-        // Update lastActive
         await this.userModel.findByIdAndUpdate(client.userId, {
           lastActive: new Date(),
         });
 
-        // Notify others that this user is offline
         this.server.emit('user:offline', {
           userId: client.userId,
         });
       }
     }
 
-    console.log(`❌ User ${client.userId} disconnected (${client.id})`);
+    this.logger.log(`❌ User ${client.userId} disconnected (${client.id})`);
   }
 
   // ===== HELPER: EMIT TO USER =====
@@ -159,6 +184,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       userSockets.forEach((socketId) => {
         this.server.to(socketId).emit(event, data);
       });
+      this.logger.debug(`Emitted ${event} to user ${userId}`);
+    } else {
+      this.logger.debug(`User ${userId} is offline, cannot emit ${event}`);
     }
   }
 
@@ -170,7 +198,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: AuthenticatedSocket,
   ) {
     client.join(`conversation:${data.conversationId}`);
-    console.log(
+    this.logger.log(
       `User ${client.userId} joined conversation ${data.conversationId}`,
     );
   }
@@ -207,6 +235,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           content: message.content,
           fileUrl: message.fileUrl,
           fileName: message.fileName,
+          quizSessionId: (message as any).quizSessionId,
           sender: {
             _id: message.sender._id,
             name: message.sender.name,
@@ -233,6 +262,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       return { success: true, message };
     } catch (error: any) {
+      this.logger.error(`Send message failed: ${error.message}`);
       client.emit('error', { message: error.message });
       return { success: false, error: error.message };
     }
@@ -283,7 +313,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       await this.chatService.markAsRead(dto.conversationId, client.userId);
 
-      // Notify partner
       client.to(`conversation:${dto.conversationId}`).emit('message:read', {
         conversationId: dto.conversationId,
         userId: client.userId,
@@ -314,7 +343,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         dto.emoji,
       );
 
-      // Get message to find conversation
       const message = await this.chatService['messageModel']
         .findById(dto.messageId)
         .lean();
@@ -323,26 +351,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return { success: false, error: 'Message not found' };
       }
 
-      // Get all reactions for this message
       const reactions = await this.chatService['reactionModel']
         .find({ messageId: dto.messageId })
         .populate('userId', 'name')
         .lean();
 
-      // Format reactions
       const formattedReactions = reactions.map((r: any) => ({
         userId: r.userId._id.toString(),
         userName: r.userId.name,
         emoji: r.emoji,
       }));
 
-      // Emit to conversation room with full reaction data
       this.server
         .to(`conversation:${message.conversationId}`)
         .emit('message:reaction', {
           messageId: dto.messageId,
           conversationId: message.conversationId.toString(),
-          reactions: formattedReactions, // ← Full reactions list
+          reactions: formattedReactions,
           action: {
             userId: client.userId,
             userName: client.user.name,
@@ -378,7 +403,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       await this.chatService.deleteMessage(dto.messageId, client.userId);
 
-      // Emit to conversation room
       this.server
         .to(`conversation:${message.conversationId}`)
         .emit('message:deleted', {
@@ -411,7 +435,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       await this.chatService.unmatch(dto.conversationId, client.userId);
 
-      // Notify partner
       this.emitToUser(
         conversation.partner._id.toString(),
         'conversation:unmatched',
@@ -441,7 +464,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       await this.chatService.blockUser(dto.conversationId, client.userId);
 
-      // Notify blocked user
       this.emitToUser(dto.userId, 'user:blocked', {
         conversationId: dto.conversationId,
         blockedBy: client.userId,

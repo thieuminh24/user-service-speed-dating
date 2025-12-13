@@ -21,15 +21,47 @@ export class MatchingController {
   @UseGuards(JwtAuthGuard)
   async getRecommendations(
     @Req() req: any,
-    @Query('maxDistance') maxDistance?: string, // ← string | undefined
+    @Query('minAge') minAge?: string,
+    @Query('maxAge') maxAge?: string,
+    @Query('gender') gender?: string,
   ) {
-    const distance = maxDistance ? parseInt(maxDistance, 10) : 50;
+    const filters: any = {};
 
-    if (isNaN(distance) || distance <= 0) {
-      throw new BadRequestException('maxDistance must be a positive number');
+    // Validate minAge
+    if (minAge) {
+      const parsedMinAge = parseInt(minAge, 10);
+      if (isNaN(parsedMinAge) || parsedMinAge < 18 || parsedMinAge > 100) {
+        throw new BadRequestException('minAge must be between 18 and 100');
+      }
+      filters.minAge = parsedMinAge;
     }
 
-    return this.matchingService.getRecommendations(req.user.userId, distance);
+    // Validate maxAge
+    if (maxAge) {
+      const parsedMaxAge = parseInt(maxAge, 10);
+      if (isNaN(parsedMaxAge) || parsedMaxAge < 18 || parsedMaxAge > 100) {
+        throw new BadRequestException('maxAge must be between 18 and 100');
+      }
+      filters.maxAge = parsedMaxAge;
+    }
+
+    // Validate minAge <= maxAge
+    if (filters.minAge && filters.maxAge && filters.minAge > filters.maxAge) {
+      throw new BadRequestException('minAge cannot be greater than maxAge');
+    }
+
+    // Validate gender
+    if (gender) {
+      const validGenders = ['Male', 'Female', 'Non-binary', 'Other'];
+      if (!validGenders.includes(gender)) {
+        throw new BadRequestException(
+          `gender must be one of: ${validGenders.join(', ')}`,
+        );
+      }
+      filters.gender = gender;
+    }
+
+    return this.matchingService.getRecommendations(req.user.userId, filters);
   }
 
   @Post('like')
@@ -48,5 +80,11 @@ export class MatchingController {
   @UseGuards(JwtAuthGuard)
   async getMatches(@Req() req: any) {
     return this.matchingService.getMatches(req.user.userId);
+  }
+
+  @Get('likes-received')
+  @UseGuards(JwtAuthGuard)
+  async getLikesReceived(@Req() req: any) {
+    return this.matchingService.getLikesReceived(req.user.userId);
   }
 }

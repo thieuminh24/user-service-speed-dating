@@ -1,4 +1,4 @@
-// src/auth/auth.module.ts
+// src/auth/auth.module.ts (UPDATED)
 import { forwardRef, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -8,36 +8,37 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { AdminGuard } from './admin.guard'; // ← THÊM
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { UsersModule } from 'src/users/users.module';
 
 @Module({
   imports: [
-    // Kết nối User model
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
     forwardRef(() => UsersModule),
-    // Cấu hình JWT
     ConfigModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         secret: configService.get('JWT_SECRET') || 'your-secret-key',
-        signOptions: { expiresIn: '7d' }, // Tăng thời gian sống token
+        signOptions: { expiresIn: '7d' },
       }),
       inject: [ConfigService],
     }),
   ],
   controllers: [AuthController],
   providers: [
-    AuthService, // ← Service xử lý register/login
-    JwtStrategy, // ← Xác thực token
+    AuthService,
+    JwtStrategy,
+    AdminGuard, // ← THÊM
   ],
   exports: [
     AuthService,
     JwtStrategy,
     PassportModule,
-    JwtModule, // ← Bắt buộc để inject JwtService ở nơi khác
+    JwtModule,
+    AdminGuard, // ← THÊM để dùng ở module khác
   ],
 })
 export class AuthModule {}

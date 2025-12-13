@@ -17,13 +17,6 @@ export class CloudinaryService {
     // Calculate timestamp để tránh stale request
     const timestamp = Math.round(Date.now() / 1000);
 
-    console.log('🕐 Cloudinary upload:', {
-      timestamp,
-      serverTime: new Date().toISOString(),
-      fileName: file.originalname,
-      fileSize: file.size,
-    });
-
     return new Promise((resolve, reject) => {
       const upload = this.cloudinary.uploader.upload_stream(
         {
@@ -37,7 +30,6 @@ export class CloudinaryService {
             console.error('❌ Cloudinary error:', error);
             return reject(error);
           }
-          console.log('✅ Upload success:', result!.secure_url);
           resolve(result!);
         },
       );
@@ -54,14 +46,6 @@ export class CloudinaryService {
 
     const timestamp = Math.round(Date.now() / 1000);
 
-    console.log('📎 Cloudinary file upload:', {
-      timestamp,
-      serverTime: new Date().toISOString(),
-      fileName: file.originalname,
-      fileSize: file.size,
-      mimeType: file.mimetype,
-    });
-
     return new Promise((resolve, reject) => {
       const upload = this.cloudinary.uploader.upload_stream(
         {
@@ -72,10 +56,8 @@ export class CloudinaryService {
         },
         (error, result) => {
           if (error) {
-            console.error('❌ Cloudinary file upload error:', error);
             return reject(error);
           }
-          console.log('✅ File upload success:', result!.secure_url);
           resolve(result!);
         },
       );

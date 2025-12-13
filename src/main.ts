@@ -6,16 +6,6 @@ import { json } from 'express';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Raw body for Stripe webhook
-  // app.use(
-  //   '/payment/stripe-webhook',
-  //   json({
-  //     verify: (req: any, res, buf) => {
-  //       req.rawBody = buf;
-  //     },
-  //   }),
-  // );
-
   // Bật Validation Pipe toàn cục
   app.useGlobalPipes(
     new ValidationPipe({

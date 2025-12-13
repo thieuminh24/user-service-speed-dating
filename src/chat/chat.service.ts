@@ -1,8 +1,10 @@
-// src/chat/chat.service.ts (Fixed)
+// src/chat/chat.service.ts - ULTIMATE FIX FOR DUPLICATES
+
 import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -13,6 +15,7 @@ import {
 import { Message, MessageStatus, MessageType } from './schemas/message.schema';
 import { MessageReaction } from './schemas/message-reaction.schema';
 import { Match } from '../matching/schemas/match.schema';
+import { OnEvent } from '@nestjs/event-emitter';
 
 interface SendMessageDto {
   conversationId: string;
@@ -22,10 +25,13 @@ interface SendMessageDto {
   fileName?: string;
   fileSize?: number;
   replyTo?: string;
+  quizSessionId?: string;
 }
 
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+
   constructor(
     @InjectModel(Conversation.name)
     private conversationModel: Model<Conversation>,
@@ -35,34 +41,62 @@ export class ChatService {
     @InjectModel(Match.name) private matchModel: Model<Match>,
   ) {}
 
-  // ===== CONVERSATION =====
+  // ===== AUTO CREATE CONVERSATION WHEN MATCH =====
+  @OnEvent('match.created')
+  async handleMatchCreated(payload: {
+    matchId: string;
+    user1Id: string;
+    user2Id: string;
+  }) {
+    this.logger.log(`🎯 Match created event: ${payload.matchId}`);
 
-  async getOrCreateConversation(matchId: string): Promise<Conversation> {
-    const match = await this.matchModel
-      .findById(matchId)
-      .populate('user1 user2');
-    if (!match) throw new NotFoundException('Match not found');
+    try {
+      // ===== CRITICAL: Check if conversation already exists first =====
+      const existing = await this.conversationModel.findOne({
+        matchId: new Types.ObjectId(payload.matchId),
+      });
 
-    let conversation = await this.conversationModel.findOne({ matchId });
+      if (existing) {
+        this.logger.log(`⚠️ Conversation already exists: ${existing._id}`);
+        return;
+      }
 
-    if (!conversation) {
-      conversation = await this.conversationModel.create({
-        matchId,
-        participants: [match.user1, match.user2],
+      // ===== Create new conversation with unique constraint =====
+      const conversation = await this.conversationModel.create({
+        matchId: new Types.ObjectId(payload.matchId),
+        participants: [
+          new Types.ObjectId(payload.user1Id),
+          new Types.ObjectId(payload.user2Id),
+        ],
         status: ConversationStatus.ACTIVE,
         unreadCount: new Map(),
       });
-    }
 
-    return conversation;
+      this.logger.log(`✅ Conversation created: ${conversation._id}`);
+    } catch (error) {
+      // If duplicate key error (E11000), just log and continue
+      if (error.code === 11000) {
+        this.logger.log('⚠️ Duplicate conversation prevented by unique index');
+      } else {
+        this.logger.error(`❌ Failed to create conversation: ${error.message}`);
+      }
+    }
   }
 
+  // ===== GET CONVERSATIONS - WITH DEDUPLICATION =====
   async getConversations(userId: string): Promise<any[]> {
+    this.logger.log(`📋 Getting conversations for user ${userId}`);
+
+    // ===== STEP 1: Remove duplicates in database =====
+    await this.removeDuplicateConversations(userId);
+
+    // ===== STEP 2: Get unique conversations =====
     const conversations = await this.conversationModel
       .find({
-        participants: userId,
+        participants: new Types.ObjectId(userId),
         status: { $ne: ConversationStatus.ARCHIVED },
       })
+      .lean({ virtuals: true }) // Quan trọng!
       .populate({
         path: 'participants',
         select: 'name photos lastActive',
@@ -71,17 +105,38 @@ export class ChatService {
         path: 'lastMessage',
         select: 'content type sender createdAt isDeleted',
       })
-      .sort({ lastMessageAt: -1 })
-      .lean()
+      .sort({ lastMessageAt: -1, createdAt: -1 })
       .exec();
+    this.logger.log(`📊 Found ${conversations.length} conversations`);
 
-    return conversations
+    // ===== STEP 3: Deduplicate by matchId in memory (safety net) =====
+    const uniqueConversations = new Map();
+
+    for (const conv of conversations) {
+      const matchIdStr = conv.matchId.toString();
+
+      // If we already have this matchId, keep the one with messages
+      if (uniqueConversations.has(matchIdStr)) {
+        const existing = uniqueConversations.get(matchIdStr);
+
+        // Prefer conversation with lastMessage
+        if (conv.lastMessage && !existing.lastMessage) {
+          uniqueConversations.set(matchIdStr, conv);
+        }
+      } else {
+        uniqueConversations.set(matchIdStr, conv);
+      }
+    }
+
+    // ===== STEP 4: Format results =====
+    return Array.from(uniqueConversations.values())
       .map((conv: any) => {
         const partner = conv.participants.find(
           (p: any) => p._id.toString() !== userId,
         );
 
         if (!partner) {
+          this.logger.warn(`⚠️ No partner found for conversation ${conv._id}`);
           return null;
         }
 
@@ -110,10 +165,110 @@ export class ChatService {
               ? (conv.unreadCount as any)[userId] || 0
               : 0,
           status: conv.status,
-          lastMessageAt: conv.lastMessageAt,
+          lastMessageAt: conv.lastMessageAt || conv.createdAt,
         };
       })
       .filter(Boolean);
+  }
+
+  // ===== HELPER: Remove duplicate conversations =====
+  private async removeDuplicateConversations(userId: string): Promise<void> {
+    try {
+      // Find all conversations for this user
+      const allConversations = await this.conversationModel
+        .find({
+          participants: new Types.ObjectId(userId),
+        })
+        .select('_id matchId lastMessage createdAt')
+        .lean();
+
+      // Group by matchId
+      const groupedByMatch = new Map<string, any[]>();
+
+      for (const conv of allConversations) {
+        const matchIdStr = conv.matchId.toString();
+        if (!groupedByMatch.has(matchIdStr)) {
+          groupedByMatch.set(matchIdStr, []);
+        }
+        groupedByMatch.get(matchIdStr)!.push(conv);
+      }
+
+      // Find duplicates and delete extras
+      for (const [matchId, convs] of groupedByMatch.entries()) {
+        if (convs.length > 1) {
+          this.logger.log(
+            `🔍 Found ${convs.length} conversations for match ${matchId}`,
+          );
+
+          // Sort by priority: 1. Has messages, 2. Oldest
+          const sorted = convs.sort((a, b) => {
+            // Prefer conversation with messages
+            if (a.lastMessage && !b.lastMessage) return -1;
+            if (!a.lastMessage && b.lastMessage) return 1;
+
+            // Then prefer oldest
+            return (
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+          });
+
+          // Keep first, delete rest
+          const toKeep = sorted[0];
+          const toDelete = sorted.slice(1).map((c) => c._id);
+
+          if (toDelete.length > 0) {
+            await this.conversationModel.deleteMany({
+              _id: { $in: toDelete },
+            });
+
+            this.logger.log(
+              `🗑️ Deleted ${toDelete.length} duplicate conversations for match ${matchId}`,
+            );
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error(`❌ Error removing duplicates: ${error.message}`);
+    }
+  }
+
+  // ===== CONVERSATION =====
+
+  async getOrCreateConversation(matchId: string): Promise<Conversation> {
+    const match = await this.matchModel
+      .findById(matchId)
+      .populate('user1 user2');
+    if (!match) throw new NotFoundException('Match not found');
+
+    // Try to find existing conversation
+    let conversation = await this.conversationModel.findOne({
+      matchId: new Types.ObjectId(matchId),
+    });
+
+    if (!conversation) {
+      // Create new conversation
+      try {
+        conversation = await this.conversationModel.create({
+          matchId: new Types.ObjectId(matchId),
+          participants: [match.user1, match.user2],
+          status: ConversationStatus.ACTIVE,
+          unreadCount: new Map(),
+        });
+      } catch (error) {
+        // If duplicate error, find the existing one
+        if (error.code === 11000) {
+          conversation = await this.conversationModel.findOne({
+            matchId: new Types.ObjectId(matchId),
+          });
+          if (!conversation)
+            throw new NotFoundException('Conversation not found');
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    return conversation;
   }
 
   async getConversationById(
@@ -126,12 +281,15 @@ export class ChatService {
         path: 'participants',
         select: 'name photos lastActive',
       })
+      .populate({
+        path: 'matchId',
+        select: '_id',
+      })
       .lean()
       .exec();
 
     if (!conversation) throw new NotFoundException('Conversation not found');
 
-    // Kiểm tra user có phải participant không
     const isParticipant = conversation.participants.some(
       (p: any) => p._id.toString() === userId,
     );
@@ -145,7 +303,7 @@ export class ChatService {
 
     return {
       _id: conversation._id,
-      matchId: conversation.matchId,
+      matchId: (conversation.matchId as any)?._id || conversation.matchId,
       partner: {
         _id: (partner as any)._id,
         name: (partner as any).name,
@@ -171,25 +329,21 @@ export class ChatService {
     );
     if (!conversation) throw new NotFoundException('Conversation not found');
 
-    // Kiểm tra quyền
     const isParticipant = conversation.participants.some(
       (p) => p.toString() === userId,
     );
     if (!isParticipant) throw new ForbiddenException('Access denied');
 
-    // Kiểm tra conversation status
     if (conversation.status === ConversationStatus.BLOCKED) {
       throw new ForbiddenException('Cannot send message to blocked user');
     }
 
-    // Tìm partner
     const partnerId = conversation.participants.find(
       (p) => p.toString() !== userId,
     );
 
     if (!partnerId) throw new NotFoundException('Partner not found');
 
-    // Tạo message
     const message = await this.messageModel.create({
       conversationId: dto.conversationId,
       sender: userId,
@@ -199,7 +353,7 @@ export class ChatService {
       fileName: dto.fileName,
       fileSize: dto.fileSize,
       replyTo: dto.replyTo,
-      quizSessionId: (dto as any).quizSessionId, // ← NEW
+      quizSessionId: dto.quizSessionId,
       readStatus: new Map([
         [userId, MessageStatus.READ],
         [partnerId.toString(), MessageStatus.SENT],
@@ -207,7 +361,6 @@ export class ChatService {
       readAt: new Map([[userId, new Date()]]),
     });
 
-    // Update conversation
     const currentUnread =
       conversation.unreadCount.get(partnerId.toString()) || 0;
     conversation.unreadCount.set(partnerId.toString(), currentUnread + 1);
@@ -215,7 +368,6 @@ export class ChatService {
     conversation.lastMessageAt = new Date();
     await conversation.save();
 
-    // Populate sender info
     const populatedMessage = await this.messageModel
       .findById(message._id)
       .populate('sender', 'name photos')
@@ -254,7 +406,6 @@ export class ChatService {
       .lean()
       .exec();
 
-    // Get reactions for messages
     const messageIds = messages.map((m: any) => m._id);
     const reactions = await this.reactionModel
       .find({ messageId: { $in: messageIds } })
@@ -262,7 +413,6 @@ export class ChatService {
       .lean()
       .exec();
 
-    // Group reactions by message
     const reactionsMap = new Map();
     reactions.forEach((r: any) => {
       if (!reactionsMap.has(r.messageId.toString())) {
@@ -282,7 +432,6 @@ export class ChatService {
 
     return {
       messages: messages.reverse().map((m: any) => {
-        // Get read status for current user
         let readStatus = MessageStatus.SENT;
         if (typeof m.readStatus === 'object') {
           const statusMap =
@@ -298,6 +447,7 @@ export class ChatService {
           content: m.content,
           fileUrl: m.fileUrl,
           fileName: m.fileName,
+          quizSessionId: m.quizSessionId,
           sender: {
             _id: m.sender._id,
             name: m.sender.name,
@@ -337,7 +487,6 @@ export class ChatService {
     const conversation = await this.conversationModel.findById(conversationId);
     if (!conversation) throw new NotFoundException('Conversation not found');
 
-    // Reset unread count
     const unreadMap =
       conversation.unreadCount instanceof Map
         ? conversation.unreadCount
@@ -347,7 +496,6 @@ export class ChatService {
     conversation.unreadCount = unreadMap as any;
     await conversation.save();
 
-    // Update all unread messages
     await this.messageModel.updateMany(
       {
         conversationId,
@@ -373,21 +521,17 @@ export class ChatService {
     const message = await this.messageModel.findById(messageId);
     if (!message) throw new NotFoundException('Message not found');
 
-    // Check if already reacted
     const existing = await this.reactionModel.findOne({ messageId, userId });
 
     if (existing) {
       if (existing.emoji === emoji) {
-        // Remove reaction
         await this.reactionModel.deleteOne({ _id: existing._id });
         message.reactionsCount = Math.max(0, message.reactionsCount - 1);
       } else {
-        // Update reaction
         existing.emoji = emoji;
         await existing.save();
       }
     } else {
-      // Add new reaction
       await this.reactionModel.create({ messageId, userId, emoji });
       message.reactionsCount += 1;
     }
@@ -411,7 +555,6 @@ export class ChatService {
     conversation.unmatchedAt = new Date();
     await conversation.save();
 
-    // Soft delete match
     await this.matchModel.findByIdAndUpdate(conversation.matchId, {
       isDeleted: true,
     });
@@ -454,6 +597,10 @@ export class ChatService {
     userId: string,
     quizSessionId: string,
   ): Promise<any> {
+    this.logger.log(
+      `Sending quiz invite: conversation=${conversationId}, session=${quizSessionId}`,
+    );
+
     const conversation = await this.conversationModel.findById(conversationId);
     if (!conversation) throw new NotFoundException('Conversation not found');
 
@@ -468,11 +615,10 @@ export class ChatService {
 
     if (!partnerId) throw new NotFoundException('Partner not found');
 
-    // Create quiz invite message
     const message = await this.messageModel.create({
       conversationId,
       sender: userId,
-      type: 'quiz_invite',
+      type: 'quiz_invite' as MessageType,
       content: '📝 Invited you to take a compatibility quiz!',
       quizSessionId,
       readStatus: new Map([
@@ -482,7 +628,6 @@ export class ChatService {
       readAt: new Map([[userId, new Date()]]),
     });
 
-    // Update conversation
     const currentUnread =
       conversation.unreadCount.get(partnerId.toString()) || 0;
     conversation.unreadCount.set(partnerId.toString(), currentUnread + 1);
@@ -490,13 +635,13 @@ export class ChatService {
     conversation.lastMessageAt = new Date();
     await conversation.save();
 
-    // Populate sender
     const populatedMessage = await this.messageModel
       .findById(message._id)
       .populate('sender', 'name photos')
       .lean()
       .exec();
 
+    this.logger.log(`Quiz invite message created: ${message._id}`);
     return populatedMessage;
   }
 }

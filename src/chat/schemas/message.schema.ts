@@ -1,4 +1,4 @@
-// src/chat/schemas/message.schema.ts (Updated)
+// src/chat/schemas/message.schema.ts
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
@@ -17,27 +17,18 @@ export enum MessageStatus {
 
 @Schema({ timestamps: true })
 export class Message extends Document {
-  createdAt: Date;
-  updatedAt: Date;
-
   @Prop({ type: Types.ObjectId, ref: 'Conversation', required: true })
   conversationId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   sender: Types.ObjectId;
 
-  @Prop({
-    type: String,
-    enum: MessageType,
-    default: MessageType.TEXT,
-  })
+  @Prop({ type: String, enum: MessageType, required: true })
   type: MessageType;
 
-  // Nội dung tin nhắn
   @Prop({ type: String })
   content?: string;
 
-  // Cho image/file
   @Prop({ type: String })
   fileUrl?: string;
 
@@ -47,32 +38,23 @@ export class Message extends Document {
   @Prop({ type: Number })
   fileSize?: number;
 
-  // ← NEW: For quiz invite
-  @Prop({ type: Types.ObjectId, ref: 'QuizSession' })
-  quizSessionId?: Types.ObjectId;
-
-  // Reply to message
   @Prop({ type: Types.ObjectId, ref: 'Message' })
   replyTo?: Types.ObjectId;
 
-  // Message status cho mỗi participant
-  @Prop({
-    type: Map,
-    of: String,
-    default: {},
-  })
+  // ===== QUIZ INVITE FIELD =====
+  @Prop({ type: Types.ObjectId, ref: 'QuizSession' })
+  quizSessionId?: Types.ObjectId;
+
+  @Prop({ type: Map, of: String, default: {} })
   readStatus: Map<string, MessageStatus>;
 
-  // Thời gian đọc
-  @Prop({
-    type: Map,
-    of: Date,
-    default: {},
-  })
+  @Prop({ type: Map, of: Date, default: {} })
   readAt: Map<string, Date>;
 
-  // Soft delete
-  @Prop({ default: false })
+  @Prop({ type: Number, default: 0 })
+  reactionsCount: number;
+
+  @Prop({ type: Boolean, default: false })
   isDeleted: boolean;
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
@@ -80,15 +62,9 @@ export class Message extends Document {
 
   @Prop({ type: Date })
   deletedAt?: Date;
-
-  // Reactions count
-  @Prop({ type: Number, default: 0 })
-  reactionsCount: number;
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);
 
-// Indexes
 MessageSchema.index({ conversationId: 1, createdAt: -1 });
-MessageSchema.index({ sender: 1 });
-MessageSchema.index({ isDeleted: 1 });
+MessageSchema.index({ conversationId: 1, isDeleted: 1 });

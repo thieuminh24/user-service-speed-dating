@@ -1,116 +1,118 @@
-// src/matching/matching.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+// src/matching/matching.service.ts - COMPLETE FIXED VERSION
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose'; // ← Import Types here
 import { User } from '../users/schemas/user.schema';
-import { CompatibilityService } from './compatibility.service';
 import { BadRequestException } from 'src/common/exceptions/bad-request.exception';
 import { Interaction, InteractionType } from './schemas/interaction.schema';
 import { Match } from './schemas/match.schema';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()
 export class MatchingService {
+  private readonly logger = new Logger(MatchingService.name); // ← Add logger
+
   constructor(
     @InjectModel(User.name) private userModel: Model<User>,
     @InjectModel(Interaction.name) private interactionModel: Model<Interaction>,
     @InjectModel(Match.name) private matchModel: Model<Match>,
-    private compatibilityService: CompatibilityService,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   async getRecommendations(
     currentUserId: string,
-    maxDistance = 50,
+    filters?: {
+      minAge?: number;
+      maxAge?: number;
+      gender?: string;
+    },
   ): Promise<any[]> {
     const currentUser = await this.userModel.findById(currentUserId);
     if (!currentUser) throw new NotFoundException('User not found');
 
-    if (!currentUser.location?.coordinates) {
-      throw new BadRequestException('Your location is missing');
+    const myInteractions = await this.interactionModel
+      .find({ fromUser: currentUserId })
+      .select('toUser')
+      .lean();
+
+    const mongoose = require('mongoose');
+    const excludedUserIds = myInteractions.map(
+      (i) => new mongoose.Types.ObjectId(i.toUser),
+    );
+    excludedUserIds.push(new mongoose.Types.ObjectId(currentUserId));
+
+    const query: any = {
+      _id: { $nin: excludedUserIds },
+      isDeleted: false,
+      role: { $ne: 'admin' }, // Loại bỏ admin
+    };
+
+    // Các filter tuổi, giới tính...
+    if (filters?.minAge || filters?.maxAge) {
+      const currentYear = new Date().getFullYear();
+
+      if (filters.minAge) {
+        const maxBirthYear = currentYear - filters.minAge;
+        query.dateOfBirth = {
+          ...(query.dateOfBirth || {}),
+          $lte: new Date(`${maxBirthYear}-12-31`),
+        };
+      }
+
+      if (filters.maxAge) {
+        const minBirthYear = currentYear - filters.maxAge;
+        query.dateOfBirth = {
+          ...(query.dateOfBirth || {}),
+          $gte: new Date(`${minBirthYear}-01-01`),
+        };
+      }
     }
 
-    const currentNum = currentUser.numerologyNumber;
-    const currentSign = currentUser.basic.starSign;
-
-    console.log('currentUser', currentUser);
-    console.log('currentNum', currentNum);
-    console.log('currentSign', currentSign);
-    if (currentNum === null || !currentSign) {
-      throw new BadRequestException(
-        'Please complete your profile (DOB required)',
-      );
+    if (filters?.gender) {
+      query['basic.gender'] = filters.gender;
     }
 
-    const [lon, lat] = currentUser.location.coordinates;
-
-    const pipeline: any[] = [
-      {
-        $geoNear: {
-          near: { type: 'Point', coordinates: [lon, lat] },
-          distanceField: 'dist.calculated',
-          maxDistance: maxDistance * 1000,
-          spherical: true,
-          query: {
-            _id: { $ne: currentUserId },
-            isDeleted: false,
-            numerologyNumber: { $ne: null },
-            starSign: { $ne: null },
+    const users = await this.userModel
+      .aggregate([
+        { $match: query }, // query đã có điều kiện loại admin
+        { $sample: { size: 30 } },
+        {
+          $project: {
+            _id: 1,
+            name: 1,
+            dateOfBirth: 1,
+            photos: 1,
+            basic: 1,
+            aboutMe: 1,
+            prompts: 1,
+            jobsAndEducation: 1,
+            location: 1,
+            isPhotoVerified: 1,
           },
         },
-      },
-      { $limit: 30 },
-    ];
+      ])
+      .exec();
 
-    const candidates = await this.userModel.aggregate(pipeline).exec();
+    return users.map((user) => {
+      const age = user.dateOfBirth
+        ? new Date().getFullYear() - new Date(user.dateOfBirth).getFullYear()
+        : null;
 
-    const recommendations = candidates
-      .map((c) => {
-        const numScore = this.compatibilityService.getNumerologyScore(
-          currentNum,
-          c.numerologyNumber,
-        );
-        const zodiacScore = this.compatibilityService.getZodiacScore(
-          currentSign,
-          c.starSign,
-        );
-        const distanceKm = Math.round(c.dist.calculated / 1000);
-        const locationScore = Math.max(0, 10 - distanceKm / 5);
-
-        // CÂN BẰNG LẠI TRỌNG SỐ (TỔNG = 100%)
-        const totalScore = Math.round(
-          numScore * 0.25 + // Numerology: 25%
-            zodiacScore * 0.25 + // Zodiac: 25%
-            locationScore * 0.5, // Location: 50%
-        );
-
-        const age = c.dateOfBirth
-          ? new Date().getFullYear() - new Date(c.dateOfBirth).getFullYear()
-          : null;
-
-        return {
-          _id: c._id,
-          name: c.name,
-          age,
-          photos: c.photos || [],
-          basic: c.basic,
-          aboutMe: c.aboutMe,
-          prompts: c.prompts,
-          jobsAndEducation: c.jobsAndEducation,
-          compatibilityScore: totalScore,
-          numerologyNumber: c.numerologyNumber,
-          distance: distanceKm,
-          numerologyScore: numScore,
-          zodiacScore: zodiacScore,
-          location: {
-            lon: c.location.coordinates[0],
-            lat: c.location.coordinates[1],
-          },
-          locationScore: Math.round(locationScore),
-        };
-      })
-      .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
-      .slice(0, 10);
-
-    return recommendations;
+      return {
+        _id: user._id,
+        name: user.name,
+        age,
+        photos: user.photos || [],
+        basic: user.basic,
+        aboutMe: user.aboutMe,
+        prompts: user.prompts,
+        location: {
+          lat: user.location?.coordinates[1],
+          lon: user.location?.coordinates[0],
+        },
+        jobsAndEducation: user.jobsAndEducation,
+      };
+    });
   }
 
   async likeUser(currentUserId: string, targetUserId: string) {
@@ -121,7 +123,6 @@ export class MatchingService {
     );
   }
 
-  // PASS USER
   async passUser(currentUserId: string, targetUserId: string) {
     return this.handleInteraction(
       currentUserId,
@@ -130,7 +131,6 @@ export class MatchingService {
     );
   }
 
-  // XỬ LÝ LIKE/PASS
   private async handleInteraction(
     fromUserId: string,
     toUserId: string,
@@ -139,11 +139,10 @@ export class MatchingService {
     if (fromUserId === toUserId)
       throw new BadRequestException('Cannot interact with yourself');
 
-    const fromUser = await this.userModel.findById(fromUserId);
-    const toUser = await this.userModel.findById(toUserId);
+    const fromUser = await this.userModel.findById(fromUserId).lean();
+    const toUser = await this.userModel.findById(toUserId).lean();
     if (!fromUser || !toUser) throw new NotFoundException('User not found');
 
-    // Kiểm tra đã tương tác chưa
     const existing = await this.interactionModel.findOne({
       fromUser: fromUserId,
       toUser: toUserId,
@@ -153,7 +152,6 @@ export class MatchingService {
       if (existing.type === type) {
         return { message: `Already ${type}d` };
       } else {
-        // Cập nhật từ pass → like
         existing.type = type;
         await existing.save();
       }
@@ -165,7 +163,6 @@ export class MatchingService {
       });
     }
 
-    // Nếu là LIKE → kiểm tra có match không
     if (type === InteractionType.LIKE) {
       const reverseLike = await this.interactionModel.findOne({
         fromUser: toUserId,
@@ -174,7 +171,7 @@ export class MatchingService {
       });
 
       if (reverseLike) {
-        // TẠO MATCH
+        // Use findOneAndUpdate with upsert to prevent duplicate matches
         const match = await this.matchModel.findOneAndUpdate(
           {
             $or: [
@@ -183,11 +180,43 @@ export class MatchingService {
             ],
           },
           {
-            user1: fromUserId,
-            user2: toUserId,
+            $setOnInsert: {
+              user1: new Types.ObjectId(fromUserId),
+              user2: new Types.ObjectId(toUserId),
+              matchedAt: new Date(),
+            },
           },
-          { upsert: true, new: true },
+          {
+            upsert: true,
+            new: true,
+          },
         );
+
+        // Only emit event if match was just created (not found existing)
+        const isNewMatch = match.matchedAt.getTime() > Date.now() - 1000;
+
+        if (isNewMatch) {
+          this.logger.log(`New match created: ${match._id}`);
+
+          // Emit match event
+          this.eventEmitter.emit('match.created', {
+            matchId: match._id,
+            user1Id: fromUserId,
+            user2Id: toUserId,
+            user1: {
+              _id: fromUser._id,
+              name: fromUser.name,
+              photos: fromUser.photos,
+            },
+            user2: {
+              _id: toUser._id,
+              name: toUser.name,
+              photos: toUser.photos,
+            },
+          });
+        } else {
+          this.logger.log(`Match already existed: ${match._id}`);
+        }
 
         return {
           message: "It's a match!",
@@ -204,11 +233,11 @@ export class MatchingService {
     return { message: 'Success' };
   }
 
-  // LẤY DANH SÁCH MATCH
   async getMatches(userId: string) {
     const matches = await this.matchModel
       .find({
         $or: [{ user1: userId }, { user2: userId }],
+        isDeleted: { $ne: true },
       })
       .populate({
         path: 'user1 user2',
@@ -231,5 +260,56 @@ export class MatchingService {
         matchedAt: m.matchedAt,
       };
     });
+  }
+
+  async getLikesReceived(userId: string) {
+    const user = await this.userModel.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const likes = await this.interactionModel
+      .find({
+        toUser: userId,
+        type: InteractionType.LIKE,
+      })
+      .populate({
+        path: 'fromUser',
+        select:
+          'name photos basic aboutMe prompts jobsAndEducation dateOfBirth',
+        model: 'User',
+      })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const myInteractions = await this.interactionModel
+      .find({ fromUser: userId })
+      .lean();
+
+    const myInteractionMap = new Map(
+      myInteractions.map((i) => [i.toUser.toString(), i.type]),
+    );
+
+    return likes
+      .filter(
+        (like) => !myInteractionMap.has((like.fromUser as any)._id.toString()),
+      )
+      .map((like: any) => {
+        const fromUser = like.fromUser;
+        const age = fromUser.dateOfBirth
+          ? new Date().getFullYear() -
+            new Date(fromUser.dateOfBirth).getFullYear()
+          : null;
+
+        return {
+          _id: fromUser._id,
+          name: fromUser.name,
+          age,
+          photos: fromUser.photos || [],
+          basic: fromUser.basic,
+          aboutMe: fromUser.aboutMe,
+          prompts: fromUser.prompts,
+          jobsAndEducation: fromUser.jobsAndEducation,
+          likedAt: like.createdAt,
+        };
+      });
   }
 }

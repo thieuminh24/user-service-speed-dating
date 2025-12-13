@@ -1,8 +1,6 @@
-// src/chat/chat.module.ts
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { JwtModule } from '@nestjs/jwt';
-
 import { Match, MatchSchema } from '../matching/schemas/match.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';

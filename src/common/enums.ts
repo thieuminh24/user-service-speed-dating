@@ -83,3 +83,14 @@ export enum Religion {
   Jewish = 'Jewish',
   Other = 'Other',
 }
+
+export enum UserRole {
+  USER = 'user',
+  ADMIN = 'admin',
+}
+
+export enum AccountStatus {
+  ACTIVE = 'active',
+  BANNED = 'banned',
+  RESTRICTED = 'restricted',
+}

@@ -10,6 +10,7 @@ import {
   Headers,
   BadRequestException,
 } from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PaymentService } from './payment.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -43,37 +44,42 @@ export class PaymentController {
     return this.paymentService.createPayment(req.user.userId, dto);
   }
 
-  // Stripe Webhook
+  // ✅ Stripe Webhook - SỬA LẠI ĐỂ DÙNG req.rawBody TỪ NESTJS
+  // payment.controller.ts - phần webhook
   @Post('stripe-webhook')
   async handleStripeWebhook(
-    @Req() req: any,
+    @Req() req: RawBodyRequest<Request>, // ← Dùng đúng type này!
     @Headers('stripe-signature') signature: string,
   ) {
     try {
-      if (!req.rawBody) {
-        throw new BadRequestException('Missing raw body');
-      }
+      const rawBody = req.rawBody;
 
-      if (!signature) {
-        throw new BadRequestException('Missing stripe signature');
+      if (!rawBody || !signature) {
+        throw new BadRequestException('Missing raw body or signature');
       }
 
       const event = await this.stripeService.constructWebhookEvent(
-        req.rawBody,
+        rawBody,
         signature,
       );
 
-      const result = await this.stripeService.handleWebhook(event);
+      // Xử lý các event quan trọng
+      if (event.type === 'checkout.session.completed') {
+        const session = event.data.object as any;
 
-      if (result && result.status === 'success') {
-        await this.paymentService.handleSuccessfulPayment(
-          result.transactionId,
-          result.metadata,
-        );
+        const transactionId = session.metadata?.transactionId;
+        if (transactionId) {
+          await this.paymentService.handleSuccessfulPayment(
+            transactionId,
+            session.metadata,
+          );
+        }
       }
 
+      // Đừng quên trả 200 nhanh!
       return { received: true };
     } catch (error) {
+      console.error('Webhook Error:', error.message);
       throw new BadRequestException(`Webhook Error: ${error.message}`);
     }
   }
@@ -85,12 +91,15 @@ export class PaymentController {
 
     if (result.isValid && result.transactionId) {
       await this.paymentService.handleSuccessfulPayment(result.transactionId);
+
       return {
         success: true,
         message: 'Payment successful',
         transactionId: result.transactionId,
       };
     } else {
+      console.error('❌ VNPay payment failed or invalid signature');
+
       return {
         success: false,
         message: 'Payment failed or invalid signature',

@@ -38,32 +38,6 @@ export class UsersService {
     return user.save();
   }
 
-  // async login(loginUserDto: LoginUserDto): Promise<{ token: string }> {
-  //   const { email, password } = loginUserDto;
-  //   const user = await this.userModel.findOne({ email });
-  //   if (!user || user.isDeleted) {
-  //     throw new UnauthorizedException('Invalid credentials');
-  //   }
-
-  //   console.log('Logging in user:', user); // Debug log
-
-  //   const isMatch = await bcrypt.compare(password, user.password);
-  //   console.log('Logging in isMatch:', isMatch); // Debug log
-
-  //   if (!isMatch) {
-  //     throw new UnauthorizedException('Invalid credentials');
-  //   }
-
-  //   const userId = user._id?.toString();
-  //   if (!userId) {
-  //     throw new UnauthorizedException('Invalid user ID');
-  //   }
-
-  //   const token = this.jwtService.sign({ id: userId });
-  //   return { token };
-  // }
-
-  // users.service.ts → update()
   async update(id: string, updateUserDto: UpdateUserDto): Promise<Profile> {
     const user = await this.userModel.findById(id);
     if (!user) throw new NotFoundException('User not found');
@@ -143,7 +117,7 @@ export class UsersService {
     const age =
       new Date().getFullYear() - new Date(user.dateOfBirth).getFullYear();
 
-    console.log('age', age);
+    console.log('user', user);
 
     return {
       name: user.name,
@@ -153,6 +127,7 @@ export class UsersService {
       prompts: user.prompts,
       jobsAndEducation: user.jobsAndEducation,
       basic: user.basic,
+      isPhotoVerified: user.isPhotoVerified,
     };
   }
 

@@ -73,4 +73,5 @@ export type Profile = {
   };
   basic: BasicProfileData;
   location?: LocationType;
+  isPhotoVerified?: boolean;
 };

@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Story, StoryType } from './schemas/story.schema';
 import { User } from '../users/schemas/user.schema';
 import { Match } from '../matching/schemas/match.schema';
@@ -109,13 +109,17 @@ export class StoryService {
 
   // GET STORIES FROM MATCHED USERS
   async getMatchedUsersStories(currentUserId: string) {
-    // Find all matches
     const matches = await this.matchModel
       .find({
-        $or: [{ user1: currentUserId }, { user2: currentUserId }],
         isDeleted: false,
+        $or: [
+          { user1: new Types.ObjectId(currentUserId) },
+          { user2: new Types.ObjectId(currentUserId) },
+        ],
       })
       .lean();
+
+    console.log('matches', matches);
 
     // Get matched user IDs
     const matchedUserIds = matches.map((m) =>
@@ -195,29 +199,38 @@ export class StoryService {
 
   // MARK STORY AS VIEWED
   async viewStory(storyId: string, viewerId: string) {
-    const story = await this.storyModel.findById(storyId);
+    const viewerObjectId = new Types.ObjectId(viewerId);
+    const storyObjectId = new Types.ObjectId(storyId);
 
-    if (!story || story.isDeleted || new Date() > story.expiresAt) {
-      throw new NotFoundException('Story not found or expired');
-    }
-
-    // Don't count owner's view
-    if (story.userId.toString() === viewerId) {
-      return { message: 'Owner view not counted' };
-    }
-
-    // Check if already viewed
-    const alreadyViewed = story.viewedBy.some(
-      (id) => id.toString() === viewerId,
+    // Update atomic: Chỉ tăng nếu chưa xem, không phải chủ, và story hợp lệ
+    const result = await this.storyModel.findOneAndUpdate(
+      {
+        _id: storyObjectId,
+        expiresAt: { $gt: new Date() },
+        isDeleted: false,
+        userId: { $ne: viewerObjectId }, // Không phải chủ story
+        viewedBy: { $ne: viewerObjectId }, // Chưa xem
+      },
+      {
+        $addToSet: { viewedBy: viewerObjectId }, // Tự động không thêm nếu đã có
+        $inc: { viewCount: 1 },
+      },
+      { new: true }, // Trả về document sau update để lấy viewCount mới
     );
 
-    if (!alreadyViewed) {
-      story.viewedBy.push(viewerId as any);
-      story.viewCount += 1;
-      await story.save();
+    if (!result) {
+      // Kiểm tra lý do không update
+      const story = await this.storyModel.findById(storyObjectId);
+      if (!story || story.isDeleted || new Date() > story.expiresAt) {
+        throw new NotFoundException('Story not found or expired');
+      }
+      return {
+        message: 'Already viewed or owner',
+        viewCount: story?.viewCount || 0,
+      };
     }
 
-    return { message: 'Story viewed', viewCount: story.viewCount };
+    return { message: 'Story viewed', viewCount: result.viewCount };
   }
 
   // DELETE STORY
@@ -248,22 +261,42 @@ export class StoryService {
 
   // GET STORY VIEWERS
   async getStoryViewers(storyId: string, userId: string) {
-    const story = await this.storyModel
-      .findById(storyId)
-      .populate('viewedBy', 'name photos')
-      .lean();
+    const story = await this.storyModel.findById(storyId).lean();
 
-    if (!story) {
-      throw new NotFoundException('Story not found');
+    if (!story || story.isDeleted || new Date() > story.expiresAt) {
+      throw new NotFoundException('Story not found or expired');
     }
 
     if (story.userId.toString() !== userId) {
-      throw new ForbiddenException('You can only view your own story viewers');
+      throw new ForbiddenException('Forbidden');
     }
 
+    // DÙNG aggregate + $lookup → chắc chắn populate được
+    const result = await this.storyModel.aggregate([
+      { $match: { _id: new Types.ObjectId(storyId) } },
+      {
+        $lookup: {
+          from: 'users', // tên collection thật trong MongoDB (thường là "users" lowercase)
+          localField: 'viewedBy',
+          foreignField: '_id',
+          as: 'viewedBy',
+        },
+      },
+      {
+        $project: {
+          viewCount: 1,
+          'viewedBy.name': 1,
+          'viewedBy.photos': 1,
+          'viewedBy._id': 1,
+        },
+      },
+    ]);
+
+    const data = result[0];
+
     return {
-      viewCount: story.viewCount,
-      viewers: story.viewedBy,
+      viewCount: data?.viewCount || 0,
+      viewers: data?.viewedBy || [],
     };
   }
 
